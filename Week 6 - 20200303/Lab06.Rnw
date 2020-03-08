@@ -1,0 +1,29 @@
+\documentclass{article}
+
+\begin{document}
+
+<<>>=
+
+library(MASS)
+library(leaps)
+library(datasets)
+library(ggbiplot)
+
+@
+
+<<>>=
+data(cpus)
+cpus$name <- NULL
+cpus$estperf <-NULL
+
+@
+
+<<>>=
+regfit.full.exhaustive <- regsubsets(perf ~ .,
+                                     data = cpus, method = "exhaustive")
+
+subset.summary.exhaustive <-summary(regfit.full.exhaustive)
+@
+
+
+\end{document}

@@ -1,0 +1,145 @@
+\documentclass{article}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+
+<<echo = false>>=
+
+
+
+setwd("H:/MSc Data Science/CMM535 - Data Science Development/Week 1 - 20200128")
+getwd()
+
+# create some vectors 
+ints <- c(1,2,3,4,5) 
+ints1 <- c(1:10) 
+ints2 <- seq(1,10,by=2) 
+doubles <- seq(from=0,to=10,by=2.5) 
+chars <- character() 
+chars[1] <- "e" 
+chars <- c(chars,"s")
+
+# print vectors components 
+ints;ints1;ints2; chars;doubles
+
+
+class(ints)# check the class of the vector ints 
+ints[length(ints)]# check the last element of the vector 
+class(chars) 
+class(doubles) 
+ints==ints1 # check if elements are equal 
+chars==ints # this will issue a warning, why?
+
+
+x <- 1:10 
+y <- 1:10 
+x + y
+x*10
+
+##2.2 Matrices
+
+# 4 x 4 matrix 
+myMat <- matrix (data=1:16,ncol = 4)
+View (myMat)
+myMat
+
+myMat[1,2]# the element at row 1, column 2
+
+myMat[2,4]# the element at row 2, column 4
+
+# check matrix dimension 
+dim(myMat)
+
+# sum the elements at the diagonal of the matrix 
+sum(diag(myMat))
+
+mymat <- matrix(data=1:40, nrow=10)
+
+mymat
+
+mymat <- mymat[-2,] 
+mymat <- mymat[,-3] 
+print(mymat)
+
+apply(myMat, 1, mean)
+apply(myMat, 2, mean)
+
+##2.3 Data Frames
+
+stIds <- c(1,2,3,4,5) 
+stNames<- c("St1","St2","St3","St4","St5") 
+stGrades<-c("Excellent","Good","Bad","Really Bad","Really Really Bad")
+
+# create a data frame to combine the above vectors 
+df <- data.frame(student_id=stIds,student_name=stNames,student_grades=stGrades)
+
+# print the data frame without row numbers 
+print(df,row.names = FALSE )
+
+names(df) # pint out the column names of the data frame 
+head(df) # show the first few rows
+# subsetting: is very important operation on data frame
+# hide the student name 
+df[,c(1,3)]
+# show records where students grades is "Bad" 
+df[df$student_grades=="Bad",]
+
+# add a new column to the data frame 
+df$gpa <- NULL # generate some numbers between 40 and 90 and add it to the gpa column 
+df$gpa <- runif(1:nrow(df),40,90)
+df
+# print data frame contents 
+print(df,row.names = FALSE )
+
+avgGPA <- mean(df$gpa)
+lowestGPA <- min(df$gpa)
+maxGPA <- max(df$gpa)
+cat("Average GPA is: \t",avgGPA)
+cat("Min GPA is: \t",lowestGPA)
+cat("Max GPA is: \t",maxGPA)
+
+# first lets have a backup copy of our data frame
+dfBackup <- df
+# correct students grades
+df$student_grades <- ifelse(df$gpa>=80,"Excellent",
+                            ifelse(df$gpa>=70,"Very Good",
+                                   ifelse(df$gpa>=50,"Good",
+                                          ifelse(df$gpa>=40,"Bad","Very Bad"))))
+# print the original and modified data frame
+print(df,row.names = FALSE )
+print(dfBackup,row.names=FALSE)
+
+df$student_name <- as.character(df$student_name)
+
+newStudent <- c(6,"ST6","Good",55.5)
+df <- rbind(df,newStudent)
+
+
+write.csv(dfBackup,"dfBackup.csv",row.names = FALSE)
+write.csv(df,"df.csv",row.names = FALSE)
+
+#2.4 Functions
+
+x <- runif(10,10,100)
+mean(x)
+median(x)
+xRounded <- round(x,digits = 2)
+x;xRounded
+help("median")
+
+# create a vector of doubles
+myNumbers <- seq(from=-1,to=1,by=.1)
+# function definition
+squareVector <- function (x) {
+  return (x*x)
+}
+# call function
+squaredX <- squareVector(myNumbers)
+@
+
+<<fig=TRUE,warning=FALSE">>=
+plot(myNumbers,squaredX,type='b',xlab = 'mynumbers', ylab = 'x*x', frame=FALSE,col='blue')
+
+@
+
+\end{document}

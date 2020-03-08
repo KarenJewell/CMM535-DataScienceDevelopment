@@ -1,0 +1,102 @@
+\documentclass{article}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+
+<<>>=
+#1
+setwd("H:/MSc Data Science/CMM535 - Data Science Development/Week 3 - 20200211")
+library(graphics)
+library(corrplot)
+library(ggplot2)
+
+@
+
+<<>>=
+#2
+data ("mtcars")
+?mtcars
+
+#2.1
+par(mfrow=c(1,2))
+boxplot(mtcars$mpg, ylab="Miles per gallon", main = "Consumption")
+boxplot(mtcars$disp, ylab = "cu.in", main = "Displacement")
+dev.off
+
+#2.1 Task 1
+par(mfrow=c(2,2))
+boxplot(mtcars$mpg, ylab="Miles per gallon", main = "Consumption")
+boxplot(mtcars$disp, ylab = "cu.in", main = "Displacement")
+boxplot(mtcars$drat, ylab="Ratio", main = "Rear Axle")
+boxplot(mtcars$qsec, ylab = "1/4 mile time", main = "Time")
+dev.off
+
+#2.1 Task 2
+par(mfrow=c(2,2))
+hist(mtcars$mpg, ylab="Miles per gallon", main = "Consumption")
+hist(mtcars$disp, ylab = "cu.in", main = "Displacement")
+hist(mtcars$drat, ylab="Ratio", main = "Rear Axle")
+hist(mtcars$qsec, ylab = "1/4 mile time", main = "Time")
+dev.off
+
+#2.2
+cyl.table <-table(mtcars$cyl)
+cyl.table
+
+par(mfrow=c(1,2))
+barplot(cyl.table, main = "Bar plot for nb of cylinders")
+pie(cyl.table, main = "Pie chart for nb of cylinders")
+dev.off
+
+#2.2 Task 1
+
+gear.table <-table(mtcars$gear)
+gear.table
+
+par(mfrow=c(1,2))
+barplot(gear.table, main = "Bar plot for no. of gears")
+pie(gear.table, main = "Pie chart for no. of gears")
+dev.off
+
+
+#2.3
+plot(x=mtcars$mpg, y=mtcars$disp, ylab = "disp", xlab = "mpg", main = paste0("disp v. mpg, correlation =", round(cor(mtcars$mpg, mtcars$disp),2)))
+
+#2.3 Task 1
+plot(x=mtcars$wt, y=mtcars$disp, ylab = "disp", xlab = "Weight (1000 lbs)", main = paste0("weight v. mpg, correlation =", round(cor(mtcars$wt, mtcars$disp),2)))
+
+#2.3 Task 2
+pairs(mtcars)
+
+
+#2.3 cont
+cor(mtcars)
+
+corrplot(cor(mtcars))
+
+#2.4
+ggplot(mtcars, aes(factor(am),mpg, fill = factor(am))) + geom_boxplot() +
+ggtitle("MPG for automatic and manual cars") + xlab("Automatic manual") +
+labs( fill = "0=auto, 1=manual")
+
+#2.4 Task
+ggplot(mtcars, aes(factor(cyl),mpg, fill = factor(cyl))) + geom_boxplot() +
+ggtitle("MPG by cylinder group") + xlab("cylinder") +
+labs( fill = "Cylinders")
+
+#2.5
+
+ggplot(mtcars, aes(x = disp, y = mpg, color = drat, shape = factor(am))) + geom_point() +
+labs(color = "Rear axle ratio", shape = "am")
+
+@
+
+<<>>=
+data("diamonds")
+str(diamonds)
+
+pairs(diamonds[,c(1,5,6,7,8,9,10)])
+
+@
+
+\end{document}
