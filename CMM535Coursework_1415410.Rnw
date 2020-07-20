@@ -1,0 +1,593 @@
+\documentclass[10pt]{article}
+\setlength{\textwidth}{6.5in} 
+\setlength{\textheight}{9in}
+\setlength{\oddsidemargin}{0in} 
+\setlength{\evensidemargin}{0in}
+\setlength{\topmargin}{-1.5cm}
+\setlength{\parindent}{0cm}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[affil-it]{authblk} 
+\usepackage{url}
+
+
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks   = true, %Colours links instead of ugly boxes
+  urlcolor     = blue, %Colour for external hyperlinks
+  linkcolor    = blue, %Colour of internal links
+  citecolor   = red %Colour of citations
+}
+
+\usepackage[backend=biber ,sorting=none]{biblatex}
+\bibliography{references}
+\begin{filecontents*}{references.bib}
+\end{filecontents*}
+
+\begin{document}
+
+
+\title{\LARGE Predicting Non-Attendance of Healthcare Appointments \\ CMM535}
+\author{KAREN JEWELL, \textit{\href{1415410@rgu.ac.uk}{1415410@rgu.ac.uk}}}
+
+\maketitle
+% \begin{flushleft} \today \end{flushleft} 
+\noindent\rule{16cm}{0.4pt}
+%\underline{\hspace{3cm}
+\ \\
+%\thispagestyle{empty}
+
+
+<<include=FALSE>>=
+# Setting global chunk options
+opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.width=6, fig.height=2.5, size="small", tidy.opts=list(width.cutoff=60), tidy=TRUE)
+@
+<<include=FALSE>>=
+# Setting environments
+library(tidyverse)
+library(tidyr)
+library(ROSE)
+library(caret)
+library(caretEnsemble)
+library(C50)
+library(dplyr)
+library(randomForest)
+library(knitr)
+library(rattle)
+library(RWeka)
+library(RColorBrewer)
+require('knitr')
+library(MASS)
+library(leaps)
+library(datasets)
+
+@
+
+
+
+\section*{Introduction}
+\subsection*{The Problem}
+
+When patients do not attend scheduled appointments, it is a waste to healthcare providers' time and resources. The ability to predict if a patient will not attend an appointment could allow healthcare providers to provide more targeted and specific reminders to those who are at greater risk of not attending, encouraging increased attendance overall.
+
+\subsection*{Project Objectives}
+
+The intention of the project is to identify if a classification model can predict if a patient will attend their appointment.
+
+\subsection*{Data}
+
+The dataset used for this project is downloaded from \url{https://www.kaggle.com/joniarroba/noshowappointments} and is a collection of patient-appointment attendance history in Brazil over 5 weeks between 29 April 2016 and 8 June 2016\\
+
+The dataset has 110,527 instances and 13 attributes. The 13 attributes are a mix of numerical, datetime, string and boolean values. There are some issues with data formats which are treated in the cleaning stage of this project
+
+
+\subsubsection*{Data Dictionary}
+\begin{itemize}
+\item \textbf{PatientId} A unique identification number for a patient
+\item \textbf{AppointmentID} A unique identification number for each appointment
+\item \textbf{Gender} The gender of the patient being Female or Male
+\item \textbf{ScheduledDay}  The day and time a patient requested the appoinment.
+\item \textbf{AppointmentDay} The day and time of the actual appointment.
+\item \textbf{Age}  The age of the patient.
+\item \textbf{Neighbourhood}  Where the appointment takes place.
+\item \textbf{Scholarship} If the patient is receiving social welfare aid. Further reading \url{https://en.wikipedia.org/wiki/Bolsa_Fam%C3%ADlia} (1 if True)
+\item \textbf{Hipertension} If the patient is known to be diagnosed with Hypertension (1 if True).
+\item \textbf{Diabetes} If the patient is known to be diagnosed with Diabetes (1 if True). 
+\item \textbf{Alcoholism} If the patient is known to be diagnosed with Alcoholism (1 if True).
+\item \textbf{Handcap} If the patient is known to have a handicap (1 if True). 
+\item \textbf{SMS\_received} If the patient was sent an SMS reminder of the appointment (1 if True).
+\item \textbf{No-show} If the patient attended their appointment (no.show is no) or did not attend the appointment (no.show is yes)
+\end{itemize}
+
+<<>>=
+# Loading the data
+data <- read.csv('KaggleV2-May-2016-NoShowAppointments.csv')
+str(data)
+@
+
+\subsubsection*{Classification Target}
+The target variable is “No.show” which is a binary classification representing whether a patient attended their appointment (“No”) or not (“Yes”). It is an imbalanced dataset over 2 classes with 20\% of patients not attending their appointments.\\
+
+The use of a double-negative "No.show is No" actually meaning the patient did attend their appointment is unintuitive and confusing. So to aid interpretation of the results, the target class is renamed to "Attended" (Yes/No) in the data cleaning stage of this project and refered to as such in the rest of this document.
+
+<<>>=
+# Distribution of classes
+table(data$No.show)
+
+ggplot(data, aes(No.show)) + 
+  geom_bar(aes(y = (..count..)/sum(..count..)), fill="#999999") + 
+  scale_y_continuous(labels=scales::percent, name="") +
+  ggtitle("Distribution of Target Classes") +
+  theme(plot.title = element_text(size=10))
+@
+
+\section*{Exploratory Analysis}
+\subsection*{Initial Exploration}
+<<>>=
+# Checking for any missing data
+sum(is.na(data))
+
+# Checking if Appointment IDs are unique
+duplicated(data$AppointmentId)
+@
+
+For an initial investigation, the dataset is checked for any missing data, which none are found; and if the AppointmentID is unique to ensure no duplication of instances, which none are found, suggesting all instances are indeed unique.
+
+\subsection*{Cleaning Data}
+<<>>=
+# Creating new repo for cleaned data, retaining original load for sense checking
+cleandata <- data
+
+# Correcting column names
+names(cleandata)[names(cleandata)=="Handcap"] <- "Handicap"
+names(cleandata)[names(cleandata)=="Hipertension"] <- "Hypertension"
+names(cleandata)[names(cleandata)=="Scholarship"] <- "WelfareAid"
+
+# Converting int to factors
+boolcols <- c('WelfareAid','Hypertension','Diabetes','Alcoholism','Handicap','SMS_received')
+
+cleandata[boolcols] <- 
+        lapply(cleandata[boolcols], factor, 
+        levels=c(0, 1), 
+        labels = c("FALSE","TRUE"))
+
+# Separating time and date from Appointment and Schedule
+cleandata$AppointmentDate <- 
+  format(as.POSIXct(cleandata$AppointmentDay,format='%Y-%m-%dT%H:%M:%SZ'),format='%Y-%m-%d')
+
+cleandata$AppointmentDayofWeek <- 
+  format(as.POSIXct(cleandata$AppointmentDay,format='%Y-%m-%dT%H:%M:%SZ'),format='%A')
+
+cleandata$AppointmentTime <- 
+  format(as.POSIXct(cleandata$AppointmentDay,format='%Y-%m-%dT%H:%M:%SZ'),format='%H:%M:%S')
+
+cleandata$RequestDate <- 
+  format(as.POSIXct(cleandata$ScheduledDay,format='%Y-%m-%dT%H:%M:%SZ'),format='%Y-%m-%d')
+
+cleandata$RequestDayofWeek <- 
+  format(as.POSIXct(cleandata$ScheduledDay,format='%Y-%m-%dT%H:%M:%SZ'),format='%A')
+
+cleandata$RequestTime <- 
+  format(as.POSIXct(cleandata$ScheduledDay,format='%Y-%m-%dT%H:%M:%SZ'),format='%H:%M:%S')
+
+# Converting day strings to factors
+daysofweek = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+cleandata$AppointmentDayofWeek <- factor(cleandata$AppointmentDayofWeek, levels = daysofweek)
+cleandata$RequestDayofWeek <- factor(cleandata$RequestDayofWeek, levels = daysofweek)
+
+# Creating new data
+cleandata$DaysBetween <- 
+  as.integer(difftime(cleandata$AppointmentDate,cleandata$RequestDate, units='days'))
+
+# Inversing the target variable to be Attended Y/N 
+# (No.show=No >>> Attended=Yes; No.show=Yes >>> Attended = No)
+cleandata$Attended <- 
+  factor(cleandata$No.show, levels = c("Yes", "No"), labels = c("No", "Yes"))
+@
+
+In this stage, the data is cleaned to prepare it for modelling.\\
+
+3 column names of "Handcap" "Hipertension" "Scholarship" are renamed to "Handicap", "Hypertension" and "WelfareAid" respectively to correct spelling errors or to improve clarity given its translation from the original Portuguese language.\\
+
+For the columns 'WelfareAid','Hypertension','Diabetes','Alcoholism','Handicap','SMS\_received' which are originally integer values, these are converted to a factor data type with 2 levels of TRUE or FALSE. Even though the data is boolean in nature, it is best practice to convert it so the model recognises there is no order between the values as would have been implied if left as an integer.\\
+
+The 2 datetime columns are formatted and split into 6 columns (3 each of the original) to retain only the date, the time and the name of the day. The names of the days are then converted to a 7-level factor 1 for each day of the week.\\
+
+A new variable "DaysBetween" was calculated to represent the difference in days between when the appointment was made "RequestDate" and when the appointment was to occur "AppointmentDate".\\
+
+Last and perhaps most crucially, the target variable was renamed and inversed to add clarity and become more intuitive to interpret later. The target was renamed from "No.show" to "Attended", and thus where a patient was a no-show (No.show=Yes) is now a Attended=No and likewise where they weren't a no-show (No.show=No) they are now a Attended=Yes. The target class "No" now becomes the minority class and the class of particular interest. After this inversion, the target is represented as below:
+
+<<>>=
+# Distribution of classes
+table(cleandata$Attended)
+
+ggplot(cleandata, aes(Attended)) + 
+  geom_bar(aes(y = (..count..)/sum(..count..)), fill="#999999") + 
+  scale_y_continuous(labels=scales::percent, name="") +
+  ggtitle("Distribution of Target Classes (after Cleaning)") +
+  theme(plot.title = element_text(size=10))
+@
+
+\pagebreak
+\section*{Attribute Analysis}
+
+\subsection*{Gender Distribution}
+<<>>=
+# Distribution of gender
+with(cleandata, table(Gender)) %>% 
+  prop.table()
+
+ggplot(cleandata, aes(Gender)) + 
+  geom_bar(aes(y = (..count..)/sum(..count..)), fill="#999999") + 
+  scale_y_continuous(labels=scales::percent, name="") +
+  ggtitle("Distribution of Gender") + 
+  theme(plot.title = element_text(size=10))
+@
+
+In the dataset, approximately 65\% of the appointments were for Female patients and the remaining 35\% for Male patients. Which is in itself an interesting observation that Females are nearly twice as likely as Males to require an appointment. However, looking deeper as in the figures below, gender does not appear to impact appointment attendance as 20\% of both Female and Male patients did not attend their appointments (remembering that the total propotion of non-attendance is also 20\%).  
+
+<<>>=
+# Proportion of Females not attending appointments
+with(subset(cleandata, Gender=="F"), table(Attended)) %>% 
+  prop.table()
+
+# Proportion of Males not attending appointments
+with(subset(cleandata, Gender=="M"), table(Attended)) %>% 
+  prop.table()
+
+ggplot(cleandata, aes(x=Gender, fill=Attended)) + 
+    scale_y_continuous(labels=scales::percent, name="") +
+    geom_bar(position="fill", stat="count") +
+    scale_fill_brewer(palette="Set2") +
+    ggtitle("Distribution of Attendance by Gender") + 
+    theme(plot.title = element_text(size=10))
+@
+
+\subsection*{Age Distribution}
+<<>>=
+# Distribution of ages
+summary(cleandata$Age)
+
+# Looking into the -1 age
+length(cleandata$Age[cleandata$Age<0])
+
+
+
+ggplot(cleandata, aes(Age)) + 
+  geom_histogram(fill="#999999") +
+  ggtitle("Distribution of Age") + 
+  theme(plot.title = element_text(size=10))
+
+
+ggplot(cleandata, aes(x=Attended, y=Age)) + 
+  geom_boxplot() +
+  ggtitle("Distribution of Attendance by Age") + 
+  theme(plot.title = element_text(size=10))
+@
+
+Looking at the distribution of patients' ages in the dataset, the youngest age is -1 and further investigation reveals this is a single instance which seems to indicate is an error; the oldest age is 115. However, there also appears to be little significant relationship between the age of the patient and attendance of the appointment. Although not explored in this project, it could be potentially interesting to investigate further if groups of ages (infants, children, teenagers, adults, seniors) tend to impact appointment attendance. 
+
+\subsection*{Neighbourhood Distribution}
+<<>>=
+# Distribution of neighbourhoods
+length(unique(cleandata$Neighbourhood))
+
+ggplot(cleandata, aes(Neighbourhood)) + 
+  geom_bar(aes(y = (..count..)/sum(..count..)), fill="#999999") + 
+  scale_y_continuous(labels=scales::percent, name="") +
+  ggtitle("Distribution of Neighbourhoods") +
+  theme(text = element_text(size=5),
+        axis.text.x=element_text(angle=90, hjust=1),
+        plot.title = element_text(size=10))
+
+@
+
+There are 81 distinct neighbourhoods identified in this dataset.
+
+
+\subsection*{Distribution of Appointment Time}
+<<>>=
+# Checking post-processing
+unique(cleandata$AppointmentTime)
+@
+
+A theory which could have been explored, is if the time of an appointment affected appointment attendance. For example, if appointments were early in the morning and a patient could not travel across to the place of their appointment in time. Unfortunately, after extracting the Appointment Time information from the original AppointmentDay column, it turns out the appointment time is either not recorded, or had been omitted for potential privacy reasons (although unlikely if patientID is retained). This unfortunately renders the variable redundant.
+
+\subsection*{Elapsed Time between Appointment and When Requested}
+<<>>=
+# Proportion of entries where appointments are made on the same day
+length(cleandata$DaysBetween[cleandata$DaysBetween==0])/length(cleandata$DaysBetween)
+summary(cleandata$DaysBetween)
+
+# Distribution of days between appointment
+ggplot(cleandata, aes(DaysBetween)) + 
+  geom_histogram(stat="count") +
+  ggtitle("Distribution of Days between Request and Appointment") + 
+  theme(plot.title = element_text(size=10))
+@
+
+In looking at the days between when an appointment is requested and when it is due to happen, 35\% of appointments occur on the same day it is requested. The remaining 65\% of appointments occur between 1 and 178 days and the median is a 4 day wait. It is also apparent that there are some negative waiting days. It should be impossible to schedule an appointment for a date in history, therefore these are possibly added in retrospect or potentially erroneously transposed.  
+
+<<>>=
+ggplot(cleandata, aes(x=Attended, y=DaysBetween)) + 
+  geom_boxplot() +
+  ggtitle("Distribution of Attendance by Days between Request and Appointment") + 
+  theme(plot.title = element_text(size=10))
+
+cleandata$samedayappt <- as.factor(ifelse(cleandata$DaysBetween == 0,"Same Day", "Not Same Day"))
+
+# Proportion of same-day appointments attended
+with(subset(cleandata, samedayappt=="Same Day"), table(Attended)) %>% 
+  prop.table()
+
+# Proportion of non-same-day appointments attended
+with(subset(cleandata, samedayappt=="Not Same Day"), table(Attended)) %>% 
+  prop.table()
+
+ggplot(cleandata, aes(x=samedayappt, fill=Attended)) + 
+    scale_y_continuous(labels=scales::percent, name="") +
+    geom_bar(position="fill", stat="count") +
+    scale_fill_brewer(palette="Set2") +
+    ggtitle("Distribution of Attendance by Same-Day Appointments") + 
+    theme(plot.title = element_text(size=10))
+@
+
+When considering the length of waiting days and attendance of appointments, same-day appointments see better attendance rates then appointments made in advance.
+
+\subsection*{Appointment Day Distribution}
+<<>>=
+# Distribution of appointment day
+table(cleandata$AppointmentDayofWeek, cleandata$Attended)
+
+ggplot(cleandata, aes(AppointmentDayofWeek)) + 
+  geom_histogram(stat="count", fill="#999999") +
+  ggtitle("Days of Appointments") + 
+  theme(plot.title = element_text(size=10))
+
+ggplot(cleandata, aes(fill=Attended, x=AppointmentDayofWeek)) + 
+   scale_y_continuous(labels=scales::percent, name="") +
+    geom_bar(position="fill", stat="count") +
+    scale_fill_brewer(palette="Set2") +
+    ggtitle("Distribution of Attendance by Appointment Day of the Week") + 
+    theme(plot.title = element_text(size=10))
+@
+
+There appears to be little variation in attendance given the day of the week, although it is evident that appointments occur Monday to Friday with very few on Saturdays and none on Sundays.
+
+\subsection*{Day of Appointment Request Distribution}
+<<>>=
+# Distribution of request day
+table(cleandata$RequestDayofWeek, cleandata$Attended)
+
+ggplot(cleandata, aes(RequestDayofWeek)) +
+  geom_histogram(stat="count", fill="#999999") +
+  ggtitle("Days Requests are Made") + 
+  theme(plot.title = element_text(size=10))
+
+ggplot(cleandata, aes(fill=Attended, x=RequestDayofWeek)) + 
+  scale_y_continuous(labels=scales::percent, name="") +
+  geom_bar(position="fill", stat="count") +
+  scale_fill_brewer(palette="Set2") +
+  ggtitle("Distribution of Attendance by Appointment Day of the Week") + 
+  theme(plot.title = element_text(size=10))
+@
+
+Similar to which day an appointment occurs, the day when an appointment is requested appears to not relate to attendance, except for appointments made on Saturdays where there is less non-attendance. Again here we also we see far fewer appointments made on Saturdays, and none on Sundays presumably because healthcare providers do not operate on those days.
+
+<<>>=
+ggplot(cleandata, aes(x=RequestDayofWeek, y=DaysBetween)) + 
+  geom_boxplot() +
+  ggtitle("Distribution of Waiting Days by Day Appointment is Requested") + 
+  theme(plot.title = element_text(size=10))
+@
+
+
+\subsection*{Distribution of SMS Reminders}
+<<>>=
+# Distribution of sms_received
+with(cleandata, table(SMS_received)) %>% 
+  prop.table()
+
+# Proportion of attendance having received a sms reminder
+with(subset(cleandata, SMS_received=="TRUE"), table(Attended)) %>% 
+  prop.table()
+
+# Proportion of attendance not having received a sms reminder
+with(subset(cleandata, SMS_received=="FALSE"), table(Attended)) %>% 
+  prop.table()
+@
+
+Of the entire dataset, 68\% of patients did not receive an SMS reminder. 16.7\% of those patients who had not received an SMS reminder did not attend their appointments.\\
+
+This compared to the 32\% of patients who did receive an SMS reminder, 27.5\% of those patients did not attend their appointments.
+
+<<>>=
+ggplot(cleandata, aes(x=Attended, fill=SMS_received)) + 
+    scale_y_continuous(labels=scales::percent, name="") +
+    geom_bar(position="fill", stat="count") +
+    scale_fill_brewer(palette="Set2") +
+    ggtitle("Distribution of Attendance Having Received a SMS Reminder") + 
+    theme(plot.title = element_text(size=10))
+
+# Proportion of non-attendants having received a sms reminder
+with(subset(cleandata, Attended=="No"), table(SMS_received)) %>% 
+  prop.table()
+
+# Proportion of postive attendants having received a sms reminder
+with(subset(cleandata, Attended=="Yes"), table(SMS_received)) %>% 
+  prop.table()
+@
+
+Considering a different perspective, of the 80\% of attended appointments, 70\% of those attended appointments, did not receive an SMS reminder, 30\% had received one.
+Of the 20\% of non-attended appointments, 56\% of those patients had not received an SMS reminder, yet 43.8\% had received one and still not attended.\\
+
+
+It would appear then that there is little relationship between appointment attendance and the SMS reminders intended to encourage attending these appointments.\\
+
+Looking further into the use of SMS reminders, it is not evident what the conditions are for an SMS reminder to be sent. This could have been an opt-in method at the time of making the appointment, if a patient requested to be reminded, or if it is an automated service. One potential theory to explore was if the length of time between making an appoinment and attending the appointment had an impact on whether an SMS reminder was sent.\\
+
+<<>>=
+ggplot(cleandata, aes(x=SMS_received, y=DaysBetween)) + 
+  geom_boxplot() +
+  ggtitle("SMS Received in Relation to Days Leading to Appointment") + 
+  theme(plot.title = element_text(size=10))
+
+summary(subset(cleandata, SMS_received=="FALSE")$DaysBetween)
+summary(subset(cleandata, SMS_received=="TRUE")$DaysBetween)
+
+@
+
+From this figure, we see there is some significant relationship where approximately 75\% (up to Q3) of the SMS reminders not sent to patients had 6 or less waiting days in between, and similarly 75\% (from Q1) of the SMS reminders which were sent had waiting days of 7 and above. Although as in the box plot, we see some notable exceptions and therefore suggests this is not a hard rule or an automated feature. 
+
+
+
+\subsection*{Repeating Visits}
+<<>>=
+repeatedvisits <- cleandata %>% 
+      group_by(PatientId) %>%
+      summarise(appointments = n()) %>%
+      group_by(appointments) %>%
+      summarise(repeatingpatients = n())
+repeatedvisits
+
+summary(repeatedvisits$appointments)
+
+ggplot(repeatedvisits, aes(x=appointments, y =repeatingpatients )) +
+  geom_bar(stat='identity',fill="#999999") +
+  ylim(0,40000) +
+  xlim(0,15) +
+  ggtitle("Number of Patients with Repeated Appointments") + 
+  theme(plot.title = element_text(size=10))
+
+@
+
+Another theory to explore is one of repeating visits, and more importantly, repeating non-attendance. Considering the dataset contains appointments only over 5 continous weeks which makes approximately 30 possible appointment days, what is the likelihood of a patient having repeated visits? According to this dataset, as many as 88, which perhaps is suspicious and warrants further investigation.
+
+\pagebreak
+\section*{Predictive Modelling}
+\subsection*{Pre-modelling data preparation}
+<<>>=
+moddata <- cleandata
+
+# Keeping instances with 0 or more days between request and appointment date
+moddata <- subset(moddata, DaysBetween>=0)
+
+# Keeping instances with an Age equal or larger than 0
+moddata <- subset(moddata, Age>=0)
+
+# Dropping redundant data
+moddata$AppointmentID <- NULL
+moddata$PatientId <- NULL
+moddata$AppointmentDay <- NULL
+moddata$ScheduledDay <- NULL
+moddata$AppointmentDate <-NULL
+moddata$RequestDate <-NULL
+moddata$AppointmentTime <- NULL
+moddata$RequestTime <-NULL
+moddata$samedayappt <- NULL
+moddata$No.show <- NULL
+
+
+# Removing missing data (errors in model)
+moddata <- na.omit(moddata)
+
+# Removal of Neighbourhood variable because >53 levels
+moddata$Neighbourhood <- NULL
+@
+
+The following modifications were made to reduce noise in the model:
+\begin{itemize}
+\item Removed \textbf{DaysBetween} and \textbf{Age} where instances are less than 0. These are likely errors in recording.
+\item Removed \textbf{AppointmentID} and \textbf{PatientID} as these are unique values pertaining to the individual instances.
+\item Removed \textbf{AppointmentDay} and \textbf{ScheduledDay} as these are replaced by the 6 new split date and time variables introduced in the cleaning stage.
+\item Removed \textbf{AppointmentDate} and \textbf{RequestDate} as these are fixed date values in history and not useful for prediction.
+\item Removed \textbf{AppointmentTime} as these are unique values pertaining to the individual instances.
+\item Removed \textbf{RequestTime} as these are highly unique and potentially not very useful. 
+\item Removed \textbf{samedayappt} as it is a gouping of \textbf{DaysBetween} which is being retained.
+\item Removed \textbf{No.show} as it is replaced by the new target \textbf{Attended}.
+
+\end{itemize}
+
+Reluctantly, the Neighbourhood variable was also removed as it contained 81 factor levels and the following models have a limit of 53 levels to process. In a future project, this could be explored by potentially one-hot encoding the Neighbourhood variable, or grouping the instances into higher level regional classes.
+
+\subsection*{Sampling the Dataset}
+
+<<>>=
+# Random sampling without addressing class imbalance
+nbsampledset <- sample_n(moddata,5000)
+
+# Over and Under sampling to address class imbalance
+sampledset <- 
+  ovun.sample(Attended ~ ., data = moddata, method = "both", p=0.5, N=5000, seed = 1)$data
+table(sampledset$Attended)
+
+# Training Control
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=2)
+@
+
+As the dataset is highly imbalanced, over and undersampling was performed to create a more balanced dataset for prediction. At 110,032 instances even after removing instances with errors, it is a very large dataset to process and for the purposes of being able to run the models, a smaller sample of 5000 instances are used for the following predictive models. \\
+
+All models in this project are trained with repeating cross-validation.
+
+<<>>=
+# J48
+set.seed(1)
+J48nb.mod <- train(Attended ~., data=nbsampledset, method = "J48", trControl = ctrl) 
+#Check the accuracy
+confusionMatrix(J48nb.mod)
+
+@
+As we see in this example, where the non-balanced set is used with a J48 classifier, the accuracy of the model is high at 80\%, but when looking at the confusion matrix, it has done no better than to predict every appoinment as being attended (Attended=Yes) to maximise accuracy. While it is the best accuracy out of all the models to follow, it is not any better than taking a simple proportion of the classes and assuming an error every 1 of 5 appointments.
+
+\subsection*{Models}
+<<>>=
+# LVQ
+set.seed(1)
+lvq.mod <- train(Attended~., data=sampledset, method="lvq", trControl=ctrl)
+# GBM
+set.seed(1)
+gbm.mod <- train(Attended~., data=sampledset, method="gbm", trControl=ctrl, verbose=FALSE)
+# SVM
+set.seed(1)
+svm.mod <- train(Attended~., data=sampledset, method="svmRadial", trControl=ctrl)
+# J48
+set.seed(1)
+J48.mod <- train(Attended ~., data=sampledset, method = "J48", trControl = ctrl) 
+# Random Forest
+set.seed(1)
+rf.mod <- train(Attended~., data=sampledset, method="rf", trControl=ctrl)
+
+results <- resamples(list(LVQ=lvq.mod, GBM=gbm.mod, SVM=svm.mod, J48=J48.mod, RF=rf.mod))
+summary(results)
+@
+
+<<fig.width=6, fig.height=4>>=
+dotplot(results)
+@
+
+<<>>=
+#Checking the model
+confusionMatrix(gbm.mod)
+@
+
+The Gradient Boosting Model (GBM) performed the best of the 5 models, although only statstically significant when compared to the worst performing model Learning Vector Quantization (LVQ). 
+
+<<fig.width=4, fig.height=4>>=
+# Variable importance
+plot(varImp(svm.mod, scale=FALSE),xlim=c(0,1))
+print(varImp(svm.mod, scale=FALSE))
+@
+
+
+When inspecting the importance of variables, it's no surprise given the analysis before that the length of time between when the appointment was requested and when it occured is deemed the most important feature, and whether an SMS reminder is sent is second.
+
+\section*{Results and Conclusion}
+
+Having passed a balanced sample of 5,000 instances through 5 different models, none of the models have performed exceptionally well. The model with best accuracy was actually the J48 using an imbalanced dataset, but it also had the worst Recall and Precision (as 0) if considering the "No" class was the intended target since it never predicted a patient as failing to attend.\\
+
+Of all the other models performed on the over and under sampled balanced dataset, GBM returned the highest Accuracy and Kappa statistic, but it is perhaps being overly pessimistic in predicting more non-attending patients than there really are. The dimensionality of the features is a factor in the models' performance, but perhaps most of all, as a result of all the exploratory analysis performed, I am not convinced the variables are relevant to predicting appointment attendance to begin with.\\
+
+Ultimately, the predictive models have not been a great success, more could have been done to tune the models but given the data, I am not sure given the dataset and relationships between the variables, that it would have produced a much better effect. From this project, perhaps the best value can be gained from having performed the exploratory analysis. From this, we know that the waiting time between making and attending an appoinment is the best indicator of attendance, specifically same-day appoinments having the best attendance rates. It can also be determined that age, gender, and some types of medical conditions do not impact attendance, and perhaps this may aid future research in at least eliminating what is not relevant.\\
+
+
+\end{document}
